@@ -1,0 +1,4 @@
+1000, Minibatch Loss= 0.000999736, Training Accuracy= 0.999976
+2000, Minibatch Loss= 0.00287414, Training Accuracy= 0.999952
+3000, Minibatch Loss= 0.000330482, Training Accuracy= 0.999988
+4000, Minibatch Loss= 0.000202238, Training Accuracy= 0.999988
