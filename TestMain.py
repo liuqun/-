@@ -12,21 +12,13 @@ def model_predict(chk_path, data):
     :param data: 待预测数据(-1, 数据维度, 数据长度)
     :return: 预测的负荷索引
     '''
+    if not os.path.isdir(chk_path):
+        return False
+
     with tf.Session() as sess:
         try:
-            h_chk_path = open(chk_path + '/checkpoint')
-            for line in h_chk_path:
-                start_pst = line.find('"')
-                end_pst = line.find('"', start_pst + 1)
-                meta_name = line[start_pst + 1:end_pst]
-                break
-            h_chk_path.close()
-        except IOError:
-            print('checkpoint file missing!')
-            return False
-
-        try:
-            path_for_meta = chk_path + '/' + meta_name + ".meta"  # 调用模型路径（注意该路径中不能有中文文件夹名字）
+            latest_checkpoint_str = tf.train.latest_checkpoint(chk_path)
+            path_for_meta = latest_checkpoint_str + '.meta'
             saver = tf.train.import_meta_graph(path_for_meta)
         except IOError:
             print('meta file missing')
