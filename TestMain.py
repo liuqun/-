@@ -13,7 +13,6 @@ def model_predict(chk_path, data):
     :return: 预测的负荷索引
     '''
     with tf.Session() as sess:
-        
         try:
             h_chk_path = open(chk_path + '/checkpoint')
             for line in h_chk_path:
