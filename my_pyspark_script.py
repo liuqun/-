@@ -87,8 +87,27 @@ def reshape_ndarray(array: np.ndarray):
     return np.reshape(array, (int(len(array) / SEQ_LEN), INPUT_DIM, SEQ_LEN))  # 将输入数据维度调整为 n*1*80
 
 
+# 负荷名称(不需修改)
+APPLIANCE_NAME_TABLE = {
+    0: 'aux电饭煲-开始',
+    1: 'ipad air2-充电',
+    2: '吹风机-2档热1档风',
+    3: '戴尔E6440台式电脑',
+    4: '挂烫机-1档',
+    5: '华为P9Plus充电',
+    6: '九阳电饭煲-蒸煮',
+    7: '空调-吹风',
+    8: '空调-制冷',
+    9: '联想扬天(台式机 显示器)',
+    10: '水壶',
+    11: '无电器运行',
+    12: '吸尘器',
+}
+JIA_DIAN_ZHONG_LEI_SHU = len(APPLIANCE_NAME_TABLE)
+
 def do_model_classify(reshaped_data):
-    table = np.zeros((12,), dtype=np.int32)
+    global JIA_DIAN_ZHONG_LEI_SHU
+    table = np.zeros((JIA_DIAN_ZHONG_LEI_SHU,), dtype=np.int32)
     sess, my_vars = init_tf_session()
     with sess:
         results = sess.run(my_vars.y, feed_dict={my_vars.x: reshaped_data})
