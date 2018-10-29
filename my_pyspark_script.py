@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# -*- endcoding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -81,7 +83,7 @@ def do_tf_warming_up():
 # .map(lambda lines: lines.split("\n"))
 
 
-def reshape_ndarray(array: np.ndarray):
+def reshape_ndarray(array):
     INPUT_DIM = 1
     SEQ_LEN = 80
     return np.reshape(array, (int(len(array) / SEQ_LEN), INPUT_DIM, SEQ_LEN))  # 将输入数据维度调整为 n*1*80
