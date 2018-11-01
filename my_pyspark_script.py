@@ -36,6 +36,9 @@ from pyspark.streaming import StreamingContext
 import numpy as np
 import tensorflow as tf
 import os.path
+from datetime import datetime
+import socket
+from socket import AF_INET, SOCK_DGRAM
 
 class MyVariables:
     x = None
@@ -86,50 +89,90 @@ def do_tf_warming_up():
 def reshape_ndarray(array):
     INPUT_DIM = 1
     SEQ_LEN = 80
+    print('== Debug: input size =', len(array), ', timestamp =', datetime.now())
     return np.reshape(array, (int(len(array) / SEQ_LEN), INPUT_DIM, SEQ_LEN))  # 将输入数据维度调整为 n*1*80
 
 
 # 负荷名称(不需修改)
-APPLIANCE_NAME_TABLE = {
-    0: 'aux电饭煲-开始',
-    1: 'ipad air2-充电',
-    2: '吹风机-2档热1档风',
-    3: '戴尔E6440台式电脑',
-    4: '挂烫机-1档',
-    5: '华为P9Plus充电',
-    6: '九阳电饭煲-蒸煮',
-    7: '空调-吹风',
-    8: '空调-制冷',
-    9: '联想扬天(台式机 显示器)',
-    10: '水壶',
-    11: '无电器运行',
-    12: '吸尘器',
-}
+APPLIANCE_NAME_TABLE = [
+    'aux电饭煲-开始',
+    'iPad air2-充电',
+    '吹风机-2档热1档风',
+    '戴尔E6440台式电脑',
+    '挂烫机-1档',
+    '华为P9Plus充电',
+    '九阳电饭煲-蒸煮',
+    '空调-吹风',
+    '空调-制冷',
+    '联想扬天(台式机 显示器)',
+    '水壶',
+    '无电器运行',
+    '吸尘器',
+]
 JIA_DIAN_ZHONG_LEI_SHU = len(APPLIANCE_NAME_TABLE)
 
+
 def do_model_classify(reshaped_data):
+    now = datetime.now()
     global JIA_DIAN_ZHONG_LEI_SHU
     table = np.zeros((JIA_DIAN_ZHONG_LEI_SHU,), dtype=np.int32)
     sess, my_vars = init_tf_session()
     with sess:
         results = sess.run(my_vars.y, feed_dict={my_vars.x: reshaped_data})
+        print(results)
     for i in results:
-        table[i] = 1
-    return table
+        table[i] += 1
+        print('== Debug: {}'.format(APPLIANCE_NAME_TABLE[i]))
+    return now.strftime('%Y-%m-%d %H:%M:%S'), results
+
+
+#def output_text(rdd):
+#    v = rdd.collect()
+#    if len(v) < 1:
+#        print('Debug: No data inputed now, timestamp =', datetime.now())
+#        return
+#    print(v)
+#    a = v[0]
+#    total_cnt = sum(a)
+#    print('Debug: Computed records:', total_cnt)
+#    print('Debug: Completed at', datetime.now())
+
+global APPLIANCE_NAME_TABLE_GBK
+APPLIANCE_NAME_TABLE_GBK = [utf8.decode('utf-8').encode('gbk') for utf8 in APPLIANCE_NAME_TABLE]
+
+def gbk_msg_from_array(arr):
+    global APPLIANCE_NAME_TABLE_GBK
+    if len(arr) <= 0:
+        return b''
+    l = [APPLIANCE_NAME_TABLE_GBK[x] for x in arr]
+    msg = ' '.join(l)
+    return msg
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         print("Usage: network_wordcount.py <hostname> <port>", file=sys.stderr)
         exit(-1)
-    do_tf_warming_up()
+    print('skip warming-ups...')
+    #do_tf_warming_up()
     sc = SparkContext(appName="PythonStreamingNumPyNDArraySum")
     ssc = StreamingContext(sc, 30)
 
     text_stream_in = ssc.socketTextStream(sys.argv[1], int(sys.argv[2]))
-    counts = text_stream_in.map(lambda line: np.fromstring(line, dtype=np.float64, sep=" ")).filter(lambda array: len(array)%80==0) \
+    collection = text_stream_in.map(lambda line: np.fromstring(line, dtype=np.float, sep=" ")).filter(lambda array: len(array)%80==0) \
     .map(reshape_ndarray) \
-    .map(do_model_classify)    .reduce(lambda x, y: x + y)
-    counts.pprint()
+    .map(do_model_classify)
+
+    udpremotehostport = ('192.168.1.158', 8888)
+    udpremotetimeout = 10
+    def sendPartition(iter):
+        udpout = socket.socket(AF_INET, SOCK_DGRAM)
+        for (tag, value) in iter:
+            print(tag)
+            print(value)
+            gbkmsg = b''.join((tag, ': ', gbk_msg_from_array(value), '\n\r'))
+            udpout.sendto(gbkmsg, udpremotehostport)
+        udpout.close()
+    collection.foreachRDD(lambda rdd: rdd.foreachPartition(sendPartition))
 
     ssc.start()
     ssc.awaitTermination()
