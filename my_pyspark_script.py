@@ -28,6 +28,7 @@ r"""
     `$ bin/spark-submit examples/src/main/python/streaming/network_wordcount.py localhost 9999`
 """
 from __future__ import print_function
+from __future__ import division
 
 import sys
 from pyspark import SparkContext
@@ -39,6 +40,7 @@ import os.path
 from datetime import datetime
 import socket
 from socket import AF_INET, SOCK_DGRAM
+from operator import add
 
 class MyVariables:
     x = None
@@ -86,44 +88,49 @@ def do_tf_warming_up():
 # .map(lambda lines: lines.split("\n"))
 
 
-def reshape_ndarray(array):
+def reshape_ndarray(a):
+    print('== Debug: timestamp =', datetime.now())
+
+    print('== Debug: input size =', a.size)
     INPUT_DIM = 1
     SEQ_LEN = 80
-    print('== Debug: input size =', len(array), ', timestamp =', datetime.now())
-    return np.reshape(array, (int(len(array) / SEQ_LEN), INPUT_DIM, SEQ_LEN))  # 将输入数据维度调整为 n*1*80
+    if a.size % 80 != 0:
+        a = np.resize(a, int(a.size // SEQ_LEN) * 80)
+    return a.reshape((int(a.size // SEQ_LEN), INPUT_DIM, SEQ_LEN))
 
 
 # 负荷名称(不需修改)
 APPLIANCE_NAME_TABLE = [
-    'aux电饭煲-开始',
-    'iPad air2-充电',
-    '吹风机-2档热1档风',
-    '戴尔E6440台式电脑',
-    '挂烫机-1档',
-    '华为P9Plus充电',
-    '九阳电饭煲-蒸煮',
-    '空调-吹风',
-    '空调-制冷',
-    '联想扬天(台式机 显示器)',
-    '水壶',
+    '【aux电饭煲】',
+    '【iPad air2-充电】',
+    '【吹风机-2档热1档风】',
+    '【戴尔E6440台式电脑】',
+    '【挂烫机-1档】',
+    '【华为P9Plus充电】',
+    '【九阳电饭煲-蒸煮】',
+    '【空调-吹风】',
+    '【空调-制冷】',
+    '【联想扬天(台式机+显示器)】',
+    '【水壶】',
     '无电器运行',
-    '吸尘器',
+    '【吸尘器】',
 ]
 JIA_DIAN_ZHONG_LEI_SHU = len(APPLIANCE_NAME_TABLE)
 
 
 def do_model_classify(reshaped_data):
-    now = datetime.now()
-    global JIA_DIAN_ZHONG_LEI_SHU
-    table = np.zeros((JIA_DIAN_ZHONG_LEI_SHU,), dtype=np.int32)
     sess, my_vars = init_tf_session()
     with sess:
         results = sess.run(my_vars.y, feed_dict={my_vars.x: reshaped_data})
         print(results)
-    for i in results:
-        table[i] += 1
-        print('== Debug: {}'.format(APPLIANCE_NAME_TABLE[i]))
-    return now.strftime('%Y-%m-%d %H:%M:%S'), results
+    return results
+
+def do_result_counting(uncounted_result_list):
+    global JIA_DIAN_ZHONG_LEI_SHU
+    cnt = np.zeros(JIA_DIAN_ZHONG_LEI_SHU, np.int32)
+    for x in uncounted_result_list:
+        cnt[x] += 1
+    return cnt
 
 
 #def output_text(rdd):
@@ -140,12 +147,14 @@ def do_model_classify(reshaped_data):
 global APPLIANCE_NAME_TABLE_GBK
 APPLIANCE_NAME_TABLE_GBK = [utf8.decode('utf-8').encode('gbk') for utf8 in APPLIANCE_NAME_TABLE]
 
-def gbk_msg_from_array(arr):
+def gbk_msg_from_table(table):
     global APPLIANCE_NAME_TABLE_GBK
-    if len(arr) <= 0:
-        return b''
-    l = [APPLIANCE_NAME_TABLE_GBK[x] for x in arr]
-    msg = ' '.join(l)
+    tokens = []
+    for key, cnt in table:
+        if cnt <= 0:
+            continue
+        tokens.append(b'%s*%d' % (APPLIANCE_NAME_TABLE_GBK[key], cnt))
+    msg = ', '.join(tokens)
     return msg
 
 if __name__ == "__main__":
@@ -154,25 +163,37 @@ if __name__ == "__main__":
         exit(-1)
     print('skip warming-ups...')
     #do_tf_warming_up()
-    sc = SparkContext(appName="PythonStreamingNumPyNDArraySum")
-    ssc = StreamingContext(sc, 30)
+    sc = SparkContext(appName="TestModelClassify")
+    BATCH_DURATION_SECONDS = 1
+    ssc = StreamingContext(sc, BATCH_DURATION_SECONDS)
 
     text_stream_in = ssc.socketTextStream(sys.argv[1], int(sys.argv[2]))
-    collection = text_stream_in.map(lambda line: np.fromstring(line, dtype=np.float, sep=" ")).filter(lambda array: len(array)%80==0) \
-    .map(reshape_ndarray) \
-    .map(do_model_classify)
+    collection = text_stream_in \
+            .filter(lambda line: len(line.strip()) > 0) \
+            .map(lambda line: np.fromstring(line, dtype=np.float, sep=" ")) \
+            .map(reshape_ndarray) \
+            .filter(lambda x: int(x.size % 80) == 0) \
+            .map(do_model_classify) \
+            .map(do_result_counting
+            ).reduce(add
+            ).map(lambda counters:
+                    sorted(zip(range(12), counters), key=lambda item: item[1], reverse=True))
+
 
     udpremotehostport = ('192.168.1.158', 8888)
     udpremotetimeout = 10
-    def sendPartition(iter):
-        udpout = socket.socket(AF_INET, SOCK_DGRAM)
-        for (tag, value) in iter:
-            print(tag)
-            print(value)
-            gbkmsg = b''.join((tag, ': ', gbk_msg_from_array(value), '\n\r'))
-            udpout.sendto(gbkmsg, udpremotehostport)
-        udpout.close()
-    collection.foreachRDD(lambda rdd: rdd.foreachPartition(sendPartition))
+    def my_print(time, rdd):
+        def send_msg(iter):
+            udpout = socket.socket(AF_INET, SOCK_DGRAM)
+	    udpout.sendto(b''.join(('=== ', time.strftime('%Y-%m-%d %H:%M:%S'), ' ===\n\r')), udpremotehostport)
+            for sorted_table in iter:
+                gbkmsg = b''.join((gbk_msg_from_table(sorted_table), '\n\r'))
+                udpout.sendto(gbkmsg, udpremotehostport)
+	    udpout.sendto(b'\n\r', udpremotehostport)
+            udpout.close()
+        if rdd.count() > 0:
+            rdd.foreachPartition(send_msg)
+    collection.foreachRDD(my_print)
 
     ssc.start()
     ssc.awaitTermination()
