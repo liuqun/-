@@ -16,7 +16,6 @@
 #
 
 # A Spark Worker will be started on each of the machines listed below.
-master
 slave1
 slave2
 slave3
