@@ -164,7 +164,7 @@ if __name__ == "__main__":
     print('skip warming-ups...')
     #do_tf_warming_up()
     sc = SparkContext(appName="TestModelClassify")
-    BATCH_DURATION_SECONDS = 1
+    BATCH_DURATION_SECONDS = 10
     ssc = StreamingContext(sc, BATCH_DURATION_SECONDS)
 
     text_stream_in = ssc.socketTextStream(sys.argv[1], int(sys.argv[2]))
