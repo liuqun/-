@@ -29,6 +29,7 @@ r"""
 """
 from __future__ import print_function
 from __future__ import division
+import contextlib
 
 import sys
 from pyspark import SparkContext
@@ -42,31 +43,65 @@ import socket
 from socket import AF_INET, SOCK_DGRAM
 from operator import add
 
-class MyVariables:
+
+class MyClassifierModel:
+    sess = None
     x = None
-    logits = None
     y = None
 
+    def __init__(self, sess, x, y):
+        self.x = x
+        self.y = y
+        self.sess = sess
 
-def init_tf_session():
-    PATH_FOR_META = '/models/model.ckpt-50.meta'
-    path_for_model_dir = os.path.dirname(PATH_FOR_META)
+    def predict(self, data):
+        """使用当前会话执行一次预测
 
-    #graph1 = tf.Graph()
-    #with graph1.as_default():
-    #    saver = tf.train.import_meta_graph(PATH_FOR_META)
-    saver = tf.train.import_meta_graph(PATH_FOR_META)
-    graph = tf.get_default_graph()
-    local_vars = MyVariables()
-    local_vars.x = graph.get_tensor_by_name("x:0")
-    local_vars.logits = graph.get_tensor_by_name("logits_eval:0")
-    local_vars.y = tf.argmax(local_vars.logits, 1)
+        :param data: 待预测数据, 矩阵形状必须是 n*1*80
+        :type data: numpy.ndarray
+        :return: 预测的负荷索引
+        :rtype : numpy.ndarray
+        """
+        return self.sess.run(self.y, feed_dict={self.x: data})
 
-    #session1 = tf.Session(graph=graph1)
-    #saver.restore(session1, tf.train.latest_checkpoint(path_for_model_dir))
-    session2 = tf.Session()
-    saver.restore(session2, tf.train.latest_checkpoint(path_for_model_dir))
-    return session2, local_vars
+
+class ModelFileLoader:
+    model_instance = None
+
+    def __init__(self):
+        pass
+
+    @staticmethod
+    def open(ckpt_dir):
+        if not os.path.isdir(ckpt_dir):
+            raise ModelLoadingError('Invalid path "{}"'.format(ckpt_dir))
+        latest_checkpoint_str = tf.train.latest_checkpoint(ckpt_dir)
+        if not latest_checkpoint_str:
+            raise ModelLoadingError('Checkpoint file not found in dir "{}"'.format(ckpt_dir))
+        meta_graph_filename = latest_checkpoint_str + '.meta'
+        graph = tf.Graph()
+        try:
+            with graph.as_default():
+                saver = tf.train.import_meta_graph(meta_graph_filename)
+        except IOError:
+            raise ModelLoadingError('Meta graph file "{}" is missing'.format(meta_graph_filename))
+        x = graph.get_tensor_by_name("x:0")
+        logits = graph.get_tensor_by_name("logits_eval:0")
+        y = tf.argmax(logits, 1)
+        sess = tf.Session(graph=graph)
+        saver.restore(sess, latest_checkpoint_str)
+        pre_trained_model = MyClassifierModel(sess, x, y)
+        return pre_trained_model
+
+    @staticmethod
+    def get_instance():
+        if not ModelFileLoader.model_instance is None:
+            return ModelFileLoader.model_instance
+        ModelFileLoader.model_instance = ModelFileLoader.open('/models')
+        return ModelFileLoader.model_instance
+
+class ModelLoadingError(Exception):
+    pass
 
 
 def reshape_ndarray(a):
@@ -100,11 +135,9 @@ JIA_DIAN_ZHONG_LEI_SHU = len(APPLIANCE_NAME_TABLE)
 
 
 def do_model_classify(reshaped_data):
-    sess, my_vars = init_tf_session()
-    with sess:
-        results = sess.run(my_vars.y, feed_dict={my_vars.x: reshaped_data})
-        print(results)
-    return results
+    model = ModelFileLoader.get_instance()
+    return model.predict(reshaped_data)
+
 
 def do_result_counting(uncounted_result_list):
     global JIA_DIAN_ZHONG_LEI_SHU
