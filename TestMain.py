@@ -5,38 +5,6 @@ import numpy as np
 import os
 import contextlib
 
-class MyException(Exception):
-    pass
-
-
-def model_predict(chk_path, data):
-    '''
-    模型预测
-    :param chk_path: checkpoint文件所在路径
-    :param data: 待预测数据(-1, 数据维度, 数据长度)
-    :return: 预测的负荷索引
-    '''
-    if not os.path.isdir(chk_path):
-        raise MyException('Error: Invalid path "{}"'.format(chk_path))
-    latest_checkpoint_str = tf.train.latest_checkpoint(chk_path)
-    if not latest_checkpoint_str:
-        raise MyException('Error: checkpoint not found in "{}"'.format(chk_path))
-    path_for_meta = latest_checkpoint_str + '.meta'
-    graph = tf.Graph()
-    try:
-        with graph.as_default():
-            saver = tf.train.import_meta_graph(path_for_meta)
-    except IOError:
-        print('meta file missing')
-        raise MyException('Error: meta file "{}" is missing'.format(path_for_meta))
-    x = graph.get_tensor_by_name("x:0")
-    logits = graph.get_tensor_by_name("logits_eval:0")
-    y = tf.argmax(logits, 1)
-    feed_dict = {x: data}
-    with tf.Session(graph=graph) as sess:
-        saver.restore(sess, latest_checkpoint_str)
-        return sess.run(y, feed_dict)
-
 
 class MyClassifierModel:
     sess = None
@@ -129,4 +97,3 @@ if __name__ == '__main__':
     except ModelLoadingError as e:
         print('Debug: Failed:', e)
         exit(127)
-
