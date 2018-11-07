@@ -4,6 +4,9 @@ import tensorflow as tf
 import numpy as np
 import os
 
+class MyException(Exception):
+    pass
+
 
 def model_predict(chk_path, data):
     '''
@@ -13,27 +16,32 @@ def model_predict(chk_path, data):
     :return: 预测的负荷索引
     '''
     if not os.path.isdir(chk_path):
-        return False
-
-    with tf.Session() as sess:
-        try:
-            latest_checkpoint_str = tf.train.latest_checkpoint(chk_path)
-            path_for_meta = latest_checkpoint_str + '.meta'
+        raise MyException('Error: Invalid path "{}"'.format(chk_path))
+    latest_checkpoint_str = tf.train.latest_checkpoint(chk_path)
+    if not latest_checkpoint_str:
+        raise MyException('Error: checkpoint not found in "{}"'.format(chk_path))
+    path_for_meta = latest_checkpoint_str + '.meta'
+    graph = tf.Graph()
+    try:
+        with graph.as_default():
             saver = tf.train.import_meta_graph(path_for_meta)
-        except IOError:
-            print('meta file missing')
-            return False
+    except IOError:
+        print('meta file missing')
+        raise MyException('Error: meta file "{}" is missing'.format(path_for_meta))
+    x = graph.get_tensor_by_name("x:0")
+    logits = graph.get_tensor_by_name("logits_eval:0")
+    y = tf.argmax(logits, 1)
+    feed_dict = {x: data}
+    with tf.Session(graph=graph) as sess:
+        saver.restore(sess, latest_checkpoint_str)
+        return sess.run(y, feed_dict)
 
-        saver.restore(sess, tf.train.latest_checkpoint(chk_path))
-        graph = tf.get_default_graph()
 
-        input_name = graph.get_tensor_by_name("x:0")
-        logits = graph.get_tensor_by_name("logits_eval:0")
-
-        feed_dict = {input_name: data}
-        classification_result = sess.run(logits, feed_dict)
-
-        return tf.argmax(classification_result, 1).eval()
+def print_output_index(output_index):
+    if not output_index.any():
+        print('预测失败')
+    for i in range(len(output_index)):
+        print("第", i + 1, "个电器预测:" + appliance[int(output_index[i])])
 
 
 if __name__ == '__main__':
@@ -56,14 +64,13 @@ if __name__ == '__main__':
 
     # 测试数据加载与转换(不需修改)
     test_data = np.loadtxt(path_for_test_data)
-    rsp_test_data = np.reshape(test_data, (int(len(test_data) / input_dim), input_dim, seq_len))  # 数据维度处理
+    rsp_test_data = np.reshape(test_data, (-1, input_dim, seq_len))  # 数据维度处理
 
     # 模型预测
-    output_index = model_predict(path_for_check, rsp_test_data)
+    try:
+        output_index = model_predict(path_for_check, rsp_test_data)
+        print_output_index(output_index)  # 结果输出
+    except MyException as e:
+        print('Debug: Failed:', e)
+        exit(127)
 
-    # 结果输出
-    if output_index.any():
-        for i in range(len(output_index)):
-            print("第", i + 1, "个电器预测:" + appliance[int(output_index[i])])
-    else:
-        print('预测失败')
