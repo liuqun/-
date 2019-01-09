@@ -141,7 +141,7 @@ def gbk_msg_from_table(table):
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: {script} <hostname> <port>".format(script=sys.argv[0]), file=sys.stderr)
+        print("Usage:\n spark-submit {script} 192.168.1.158 9999".format(script=sys.argv[0]), file=sys.stderr)
         exit(-1)
     sc = SparkContext(appName="TestModelClassify")
     BATCH_DURATION_SECONDS = 10
