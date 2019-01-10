@@ -157,7 +157,7 @@ if __name__ == "__main__":
             .map(do_result_counting
             ).reduce(add
             ).map(lambda counters:
-                    sorted(zip(range(12), counters), key=lambda item: item[1], reverse=True))
+                    sorted(zip(range(len(counters)), counters), key=lambda item: item[1], reverse=True))
 
 
     udpremotehostport = ('192.168.1.158', 8888)
